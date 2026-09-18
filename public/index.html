@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visão em Voz — Teste</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+        :root {
+            --bg-void: #0B1016;
+            --bg-panel: #141B24;
+            --accent-p1: #F2A93B;
+            --accent-p2: #7C9CFF;
+            --accent-p3: #6EE7C0;
+            --accent-p4: #C9A6FF;
+            --accent-ocr: #5FD3E0;
+            --text-primary: #F5F7FA;
+            --text-muted: #8B97A8;
+            --border-soft: rgba(255, 255, 255, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: var(--bg-void);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 32px 16px 60px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .eyebrow {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--accent-p3);
+            margin-bottom: 8px;
+        }
+
+        h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 700;
+            font-size: clamp(26px, 6vw, 38px);
+            margin: 0 0 6px;
+        }
+
+        .tagline {
+            color: var(--text-muted);
+            font-size: 13.5px;
+        }
+
+        .panel {
+            width: 100%;
+            max-width: 420px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-soft);
+            border-radius: 20px;
+            padding: 18px;
+            margin-bottom: 16px;
+        }
+
+        .video-wrap {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 3/4;
+            background: #000;
+            border-radius: 14px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        video,
+        canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        canvas {
+            display: none;
+        }
+
+        .video-status {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            right: 8px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            background: rgba(0, 0, 0, 0.5);
+            padding: 4px 8px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        button.action {
+            width: 100%;
+            padding: 14px;
+            margin-bottom: 8px;
+            border: none;
+            border-radius: 12px;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            color: #0B1016;
+        }
+
+        button.action:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-describe {
+            background: var(--accent-p4);
+        }
+
+        .btn-risk {
+            background: var(--accent-p1);
+        }
+
+        .btn-secondary {
+            width: 100%;
+            padding: 10px;
+            border-radius: 10px;
+            border: 1px solid var(--border-soft);
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 12.5px;
+            cursor: pointer;
+            margin-top: 4px;
+        }
+
+        input[type=file] {
+            display: none;
+        }
+
+        .status-line {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11.5px;
+            color: var(--text-muted);
+            text-align: center;
+            margin: 10px 0;
+        }
+
+        .transcript {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-soft);
+            border-left: 3px solid var(--border-soft);
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 13.5px;
+            line-height: 1.55;
+            min-height: 60px;
+        }
+
+        .transcript.empty {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .badge {
+            display: inline-flex;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            margin-bottom: 7px;
+            padding: 3px 8px;
+            border-radius: 99px;
+        }
+
+        .error-box {
+            background: rgba(242, 90, 90, 0.1);
+            border: 1px solid rgba(242, 90, 90, 0.4);
+            color: #FF9B9B;
+            border-radius: 12px;
+            padding: 12px;
+            font-size: 13px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        footer {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 11px;
+            max-width: 420px;
+            line-height: 1.6;
+        }
+
+        footer code {
+            color: var(--accent-p2);
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div class="eyebrow">Página de teste · mesma origem do backend</div>
+        <h1>VISÃO EM VOZ</h1>
+        <p class="tagline">Aponte a câmera, toque num botão, ouça a resposta.</p>
+    </header>
+
+    <div class="panel">
+        <div class="video-wrap">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="canvas"></canvas>
+            <div class="video-status" id="videoStatus">Solicitando câmera...</div>
+        </div>
+
+        <button class="action btn-describe" id="btnDescribe" disabled>DESCREVER AMBIENTE</button>
+        <button class="action btn-risk" id="btnRisk" disabled>VERIFICAR RISCOS</button>
+        <button class="btn-secondary" id="btnUpload">Sem câmera? Enviar uma foto</button>
+        <input type="file" id="fileInput" accept="image/*" capture="environment">
+
+        <div class="status-line" id="statusLine">Pronto para analisar</div>
+
+        <div class="transcript empty" id="transcript">A resposta aparece aqui.</div>
+        <div class="error-box" id="errorBox"></div>
+    </div>
+
+    <footer>
+        Backend: <code id="backendOrigin"></code><br>
+        Se a câmera não abrir, seu navegador precisa de permissão — ou use "Enviar uma foto".
+    </footer>
+
+    <script>
+        (function () {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            const videoStatus = document.getElementById('videoStatus');
+            const btnDescribe = document.getElementById('btnDescribe');
+            const btnRisk = document.getElementById('btnRisk');
+            const btnUpload = document.getElementById('btnUpload');
+            const fileInput = document.getElementById('fileInput');
+            const statusLine = document.getElementById('statusLine');
+            const transcript = document.getElementById('transcript');
+            const errorBox = document.getElementById('errorBox');
+            document.getElementById('backendOrigin').textContent = window.location.origin;
+
+            const COLORS = {
+                risco_imediato: '--accent-p1',
+                orientacao: '--accent-p2',
+                pessoas_animais: '--accent-p3',
+                contexto: '--accent-p4',
+                ocr: '--accent-ocr'
+            };
+            const LABELS = {
+                risco_imediato: 'RISCO IMEDIATO',
+                orientacao: 'ORIENTAÇÃO ESPACIAL',
+                pessoas_animais: 'PESSOAS E ANIMAIS',
+                contexto: 'CONTEXTO GERAL',
+                ocr: 'LEITURA · OCR'
+            };
+
+            let stream = null;
+            let ptVoice = null;
+            let busy = false;
+
+            function pickVoice() {
+                const voices = speechSynthesis.getVoices();
+                ptVoice = voices.find(v => v.lang === 'pt-BR') || voices.find(v => v.lang && v.lang.startsWith('pt'));
+            }
+            if ('speechSynthesis' in window) {
+                pickVoice();
+                speechSynthesis.onvoiceschanged = pickVoice;
+            }
+
+            function speak(text) {
+                if (!('speechSynthesis' in window)) return;
+                speechSynthesis.cancel();
+                const utter = new SpeechSynthesisUtterance(text);
+                utter.lang = 'pt-BR';
+                if (ptVoice) utter.voice = ptVoice;
+                speechSynthesis.speak(utter);
+            }
+
+            function showError(msg) {
+                errorBox.textContent = msg;
+                errorBox.style.display = 'block';
+                speak('Erro: ' + msg);
+            }
+            function clearError() { errorBox.style.display = 'none'; }
+
+            async function startCamera() {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: { ideal: 'environment' } },
+                        audio: false
+                    });
+                    video.srcObject = stream;
+                    videoStatus.textContent = 'Câmera pronta';
+                    btnDescribe.disabled = false;
+                    btnRisk.disabled = false;
+                    speak('Visão em Voz pronto. Toque em Descrever ambiente ou Verificar riscos.');
+                } catch (err) {
+                    videoStatus.textContent = 'Câmera indisponível — use "Enviar uma foto"';
+                }
+            }
+            startCamera();
+
+            function compressFromCanvasSource(draw) {
+                return new Promise((resolve) => {
+                    const maxSide = 1024;
+                    const tmp = document.createElement('canvas');
+                    const ctx = tmp.getContext('2d');
+                    draw(tmp, ctx, maxSide);
+                    resolve(tmp.toDataURL('image/jpeg', 0.82).split(',')[1]);
+                });
+            }
+
+            function captureFromVideo() {
+                return compressFromCanvasSource((tmp, ctx, maxSide) => {
+                    const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+                    tmp.width = video.videoWidth * scale;
+                    tmp.height = video.videoHeight * scale;
+                    ctx.drawImage(video, 0, 0, tmp.width, tmp.height);
+                });
+            }
+
+            function captureFromFile(file) {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        compressFromCanvasSource((tmp, ctx, maxSide) => {
+                            const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+                            tmp.width = img.width * scale;
+                            tmp.height = img.height * scale;
+                            ctx.drawImage(img, 0, 0, tmp.width, tmp.height);
+                        }).then(resolve);
+                    };
+                    img.onerror = reject;
+                    img.src = URL.createObjectURL(file);
+                });
+            }
+
+            async function analyze(command, imageBase64Promise) {
+                if (busy) return;
+                busy = true;
+                clearError();
+                btnDescribe.disabled = true;
+                btnRisk.disabled = true;
+                statusLine.textContent = 'Capturando e comprimindo imagem...';
+
+                try {
+                    const image_base64 = await imageBase64Promise;
+                    statusLine.textContent = 'Enviando para análise...';
+
+                    const res = await fetch('/api/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image_base64, command, session_id: crypto.randomUUID() })
+                    });
+
+                    const raw = await res.text();
+                    let data;
+                    try { data = JSON.parse(raw); } catch (e) { throw new Error('Resposta inválida do servidor: ' + raw.slice(0, 200)); }
+
+                    if (!res.ok) {
+                        throw new Error(data.error || data.details || ('Erro HTTP ' + res.status));
+                    }
+
+                    statusLine.textContent = 'Falando...';
+                    const colorVar = COLORS[data.priority_label] || '--accent-p4';
+                    const label = LABELS[data.priority_label] || data.priority_label || 'RESPOSTA';
+                    transcript.classList.remove('empty');
+                    transcript.style.borderLeftColor = 'var(' + colorVar + ')';
+                    transcript.innerHTML = '<div class="badge" style="background:var(' + colorVar + ')22;color:var(' + colorVar + ')">' + label + '</div><div>' + data.text + '</div>';
+                    speak(data.text);
+                } catch (err) {
+                    showError(err.message || String(err));
+                    transcript.classList.add('empty');
+                    transcript.textContent = 'A última tentativa falhou — veja o erro acima.';
+                } finally {
+                    statusLine.textContent = 'Pronto para analisar';
+                    btnDescribe.disabled = false;
+                    btnRisk.disabled = false;
+                    busy = false;
+                }
+            }
+
+            btnDescribe.addEventListener('click', () => analyze('descreva', captureFromVideo()));
+            btnRisk.addEventListener('click', () => analyze('verificar_riscos', captureFromVideo()));
+
+            btnUpload.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', () => {
+                const file = fileInput.files[0];
+                if (!file) return;
+                btnDescribe.disabled = false;
+                btnRisk.disabled = false;
+                // Envia automaticamente como "descreva" ao escolher o arquivo
+                analyze('descreva', captureFromFile(file));
+            });
+        })();
+    </script>
+
+</body>
+
+</html>

@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import dotenv from 'dotenv';
 import analyzeRouter from './routes/analyze';
 
@@ -16,6 +17,9 @@ const corsOptions = process.env.ALLOWED_ORIGIN
 app.use(cors(corsOptions));
 // Limite alto para suportar imagens em base64
 app.use(express.json({ limit: '10mb' }));
+
+// Serve a página de teste e outros arquivos estáticos de public/
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.use('/api/analyze', analyzeRouter);
 

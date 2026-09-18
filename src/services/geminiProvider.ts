@@ -46,67 +46,119 @@ Escolha o nível pelo que a resposta de fato entrega, considerando o comando. Re
 `;
 
 export class GeminiProvider implements AIProvider {
-    async analyzeScene(imageBase64: string, command: string): Promise<AnalyzeResult> {
-        try {
-            const responseSchema: Schema = {
-                type: Type.OBJECT,
-                properties: {
-                    priority: {
-                        type: Type.INTEGER,
-                        description: "Nível de prioridade de 1 a 4, ou nulo se for OCR/leitura",
-                        nullable: true,
-                    },
-                    priority_label: {
-                        type: Type.STRING,
-                        description: "Rótulo da prioridade: risco_imediato, orientacao, pessoas_animais, contexto, ocr"
-                    },
-                    text: {
-                        type: Type.STRING,
-                        description: "O texto da audiodescrição que será lido para o usuário"
-                    },
-                    should_interrupt: {
-                        type: Type.BOOLEAN,
-                        description: "Verdadeiro apenas se for um risco de Prioridade 1"
-                    }
-                },
-                required: ["priority", "priority_label", "text", "should_interrupt"]
-            };
+    private static readonly MAX_ATTEMPTS = 3;
+    private static readonly BACKOFF_MS = [500, 1000];
 
-            const response = await ai.models.generateContent({
-                model: 'gemini-3.1-flash-lite',
-                contents: [
-                    {
-                        role: 'user',
-                        parts: [
-                            {
-                                inlineData: {
-                                    data: imageBase64,
-                                    mimeType: 'image/jpeg'
-                                }
-                            },
-                            { text: `Comando do usuário: "${command}"\n\nResponda a este comando com base na imagem acima.` }
-                        ]
-                    }
-                ],
-                config: {
-                    systemInstruction: SYSTEM_PROMPT,
-                    responseMimeType: 'application/json',
-                    responseSchema: responseSchema,
-                    temperature: 0.2,
-                }
-            });
-
-            const responseText = response.text;
-            if (!responseText) {
-                throw new Error("Modelo não retornou texto");
+    /**
+     * Verifica se o erro é transitório (503 / UNAVAILABLE) e vale retry.
+     */
+    private isRetryableError(error: unknown): boolean {
+        if (error instanceof Error) {
+            const msg = error.message || '';
+            // O SDK do Google GenAI inclui o status code e/ou "UNAVAILABLE" na mensagem
+            if (msg.includes('503') || msg.toUpperCase().includes('UNAVAILABLE')) {
+                return true;
             }
-
-            const result = JSON.parse(responseText) as AnalyzeResult;
-            return result;
-
-        } catch (error) {
-            console.error("Erro no Gemini:", error);
-            throw new Error("Falha ao analisar a cena");
         }
+        // Checa propriedade 'status' caso o SDK exponha (ex: error.status === 503)
+        if (typeof error === 'object' && error !== null && 'status' in error) {
+            const status = (error as Record<string, unknown>).status;
+            if (status === 503 || status === '503') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async analyzeScene(imageBase64: string, command: string): Promise<AnalyzeResult> {
+        const responseSchema: Schema = {
+            type: Type.OBJECT,
+            properties: {
+                priority: {
+                    type: Type.INTEGER,
+                    description: "Nível de prioridade de 1 a 4, ou nulo se for OCR/leitura",
+                    nullable: true,
+                },
+                priority_label: {
+                    type: Type.STRING,
+                    description: "Rótulo da prioridade: risco_imediato, orientacao, pessoas_animais, contexto, ocr"
+                },
+                text: {
+                    type: Type.STRING,
+                    description: "O texto da audiodescrição que será lido para o usuário"
+                },
+                should_interrupt: {
+                    type: Type.BOOLEAN,
+                    description: "Verdadeiro apenas se for um risco de Prioridade 1"
+                }
+            },
+            required: ["priority", "priority_label", "text", "should_interrupt"]
+        };
+
+        let lastError: unknown;
+
+        for (let attempt = 1; attempt <= GeminiProvider.MAX_ATTEMPTS; attempt++) {
+            try {
+                const response = await ai.models.generateContent({
+                    model: 'gemini-3.1-flash-lite',
+                    contents: [
+                        {
+                            role: 'user',
+                            parts: [
+                                {
+                                    inlineData: {
+                                        data: imageBase64,
+                                        mimeType: 'image/jpeg'
+                                    }
+                                },
+                                { text: `Comando do usuário: "${command}"\n\nResponda a este comando com base na imagem acima.` }
+                            ]
+                        }
+                    ],
+                    config: {
+                        systemInstruction: SYSTEM_PROMPT,
+                        responseMimeType: 'application/json',
+                        responseSchema: responseSchema,
+                        temperature: 0.2,
+                    }
+                });
+
+                const responseText = response.text;
+                if (!responseText) {
+                    throw new Error("Modelo não retornou texto");
+                }
+
+                return JSON.parse(responseText) as AnalyzeResult;
+
+            } catch (error) {
+                lastError = error;
+
+                // Só faz retry em erros transitórios (503 / UNAVAILABLE)
+                if (!this.isRetryableError(error)) {
+                    console.error("Erro não-recuperável no Gemini (sem retry):", error);
+                    throw new Error("Falha ao analisar a cena");
+                }
+
+                // Se ainda temos tentativas sobrando, espera e tenta de novo
+                if (attempt < GeminiProvider.MAX_ATTEMPTS) {
+                    const delayMs = GeminiProvider.BACKOFF_MS[attempt - 1];
+                    console.warn(
+                        `Gemini instável (503/UNAVAILABLE), tentando novamente (tentativa ${attempt + 1} de ${GeminiProvider.MAX_ATTEMPTS})... aguardando ${delayMs}ms`
+                    );
+                    await this.sleep(delayMs);
+                }
+            }
+        }
+
+        // Todas as tentativas falharam
+        console.error(
+            `Gemini: todas as ${GeminiProvider.MAX_ATTEMPTS} tentativas falharam. Último erro:`,
+            lastError
+        );
+        throw new Error("Falha ao analisar a cena");
     }
 }

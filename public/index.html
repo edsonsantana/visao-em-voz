@@ -140,6 +140,46 @@
             background: var(--accent-p1);
         }
 
+        .mic-indicator {
+            width: 100%;
+            padding: 14px;
+            margin-bottom: 8px;
+            border: 2px solid var(--accent-p2);
+            border-radius: 12px;
+            background: transparent;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            text-align: center;
+            color: var(--accent-p2);
+            transition: background 0.25s, color 0.25s, border-color 0.25s, box-shadow 0.25s;
+            user-select: none;
+        }
+
+        .mic-indicator.listening {
+            background: var(--accent-p2);
+            color: #0B1016;
+            border-color: var(--accent-p2);
+            box-shadow: 0 0 0 4px rgba(124, 156, 255, 0.25);
+            animation: mic-pulse 1.2s ease-in-out infinite;
+        }
+
+        .mic-indicator.waiting {
+            border-color: var(--accent-p1);
+            color: var(--accent-p1);
+        }
+
+        .mic-indicator.unavailable {
+            opacity: 0.35;
+            border-color: var(--text-muted);
+            color: var(--text-muted);
+        }
+
+        @keyframes mic-pulse {
+            0%, 100% { box-shadow: 0 0 0 4px rgba(124, 156, 255, 0.25); }
+            50%   { box-shadow: 0 0 0 8px rgba(124, 156, 255, 0.10); }
+        }
+
         .btn-secondary {
             width: 100%;
             padding: 10px;
@@ -232,6 +272,7 @@
 
         <button class="action btn-describe" id="btnDescribe" disabled>DESCREVER AMBIENTE</button>
         <button class="action btn-risk" id="btnRisk" disabled>VERIFICAR RISCOS</button>
+        <div class="mic-indicator" id="micIndicator">🎤 Iniciando...</div>
         <button class="btn-secondary" id="btnUpload">Sem câmera? Enviar uma foto</button>
         <input type="file" id="fileInput" accept="image/*" capture="environment">
 
@@ -288,13 +329,32 @@
                 speechSynthesis.onvoiceschanged = pickVoice;
             }
 
+            let isSpeaking = false;
+
             function speak(text) {
                 if (!('speechSynthesis' in window)) return;
+                console.log('[TTS] speak() chamado em', performance.now().toFixed(1), '| isSpeaking:', isSpeaking, '| busy:', busy);
                 speechSynthesis.cancel();
                 const utter = new SpeechSynthesisUtterance(text);
                 utter.lang = 'pt-BR';
                 if (ptVoice) utter.voice = ptVoice;
+                utter.onstart = () => {
+                    console.log('[TTS] onstart em', performance.now().toFixed(1), '| vai chamar pauseRecognition()');
+                    isSpeaking = true;
+                    pauseRecognition();
+                };
+                utter.onend = () => {
+                    console.log('[TTS] onend em', performance.now().toFixed(1), '| vai chamar resumeRecognition()');
+                    isSpeaking = false;
+                    if (!busy) resumeRecognition();
+                };
+                utter.onerror = (e) => {
+                    console.error('[TTS] onerror em', performance.now().toFixed(1), '| erro:', e.error);
+                    isSpeaking = false;
+                    if (!busy) resumeRecognition();
+                };
                 speechSynthesis.speak(utter);
+                console.log('[TTS] speechSynthesis.speak() retornou em', performance.now().toFixed(1), '| isSpeaking AINDA é:', isSpeaking);
             }
 
             function showError(msg) {
@@ -359,6 +419,7 @@
             async function analyze(command, imageBase64Promise) {
                 if (busy) return;
                 busy = true;
+                pauseRecognition();
                 clearError();
                 btnDescribe.disabled = true;
                 btnRisk.disabled = true;
@@ -389,20 +450,150 @@
                     transcript.style.borderLeftColor = 'var(' + colorVar + ')';
                     transcript.innerHTML = '<div class="badge" style="background:var(' + colorVar + ')22;color:var(' + colorVar + ')">' + label + '</div><div>' + data.text + '</div>';
                     speak(data.text);
+                    // speak() will resumeRecognition via utter.onend when TTS finishes
                 } catch (err) {
                     showError(err.message || String(err));
                     transcript.classList.add('empty');
                     transcript.textContent = 'A última tentativa falhou — veja o erro acima.';
+                    // showError calls speak(), which will resumeRecognition via utter.onend
                 } finally {
                     statusLine.textContent = 'Pronto para analisar';
                     btnDescribe.disabled = false;
                     btnRisk.disabled = false;
                     busy = false;
+                    // If TTS isn't active (e.g. speechSynthesis unavailable), resume now
+                    console.log('[Analyze] finally em', performance.now().toFixed(1), '| isSpeaking:', isSpeaking, '| vai chamar resumeRecognition?', !isSpeaking);
+                    if (!isSpeaking) resumeRecognition();
                 }
             }
 
             btnDescribe.addEventListener('click', () => analyze('descreva', captureFromVideo()));
             btnRisk.addEventListener('click', () => analyze('verificar_riscos', captureFromVideo()));
+
+            // ── Comando de Voz — Escuta Contínua (Web Speech API) ──────
+            const micIndicator = document.getElementById('micIndicator');
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            let recognition = null;
+            let recognitionPaused = false;   // true while TTS is speaking or analysis in progress
+            let permissionDenied = false;    // true if user denied mic — stops retry loop
+
+            function setMicStatus(state) {
+                micIndicator.className = 'mic-indicator';
+                if (state === 'listening') {
+                    micIndicator.classList.add('listening');
+                    micIndicator.textContent = '🎤 Ouvindo...';
+                } else if (state === 'waiting') {
+                    micIndicator.classList.add('waiting');
+                    micIndicator.textContent = '🎤 Aguarde...';
+                } else if (state === 'no-connection') {
+                    micIndicator.classList.add('unavailable');
+                    micIndicator.textContent = '🎤 Sem conexão para reconhecimento de voz';
+                } else {
+                    micIndicator.classList.add('unavailable');
+                    micIndicator.textContent = '🎤 Indisponível neste navegador';
+                }
+            }
+
+            function pauseRecognition() {
+                console.log('[Voz] pauseRecognition() em', performance.now().toFixed(1));
+                recognitionPaused = true;
+                setMicStatus('waiting');
+                if (recognition) {
+                    try { recognition.abort(); } catch (_) {}
+                }
+            }
+
+            function resumeRecognition() {
+                console.log('[Voz] resumeRecognition() em', performance.now().toFixed(1), '| permissionDenied:', permissionDenied);
+                if (!recognition || permissionDenied) return;
+                recognitionPaused = false;
+                startListeningLoop();
+            }
+
+            let _cycleStartTime = 0;
+
+            function startListeningLoop() {
+                if (!recognition || recognitionPaused || busy || isSpeaking || permissionDenied) {
+                    console.log('[Voz] startListeningLoop() BLOQUEADO em', performance.now().toFixed(1),
+                        '| paused:', recognitionPaused, '| busy:', busy, '| speaking:', isSpeaking, '| denied:', permissionDenied);
+                    return;
+                }
+                try {
+                    _cycleStartTime = performance.now();
+                    console.log('[Voz] startListeningLoop() → recognition.start() em', _cycleStartTime.toFixed(1));
+                    setMicStatus('listening');
+                    recognition.start();
+                } catch (e) {
+                    console.warn('[Voz] startListeningLoop() erro ao iniciar:', e.message);
+                    // Already started — ignore; the 'end' event will re-trigger
+                }
+            }
+
+            if (SpeechRecognition) {
+                recognition = new SpeechRecognition();
+                recognition.lang = 'pt-BR';
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
+
+                recognition.addEventListener('start', () => {
+                    console.log('[Voz] ▶ Reconhecimento INICIADO em', performance.now().toFixed(1));
+                });
+
+                recognition.addEventListener('result', (event) => {
+                    const transcript = event.results[0][0].transcript || '';
+                    console.log('[Voz] Reconhecido:', transcript);
+                    const text = transcript.toLowerCase();
+                    statusLine.textContent = 'Ouvido: "' + transcript + '"';
+
+                    const riskKeywords = ['risco', 'perigo', 'obstáculo', 'obstaculo'];
+                    if (riskKeywords.some(kw => text.includes(kw))) {
+                        btnRisk.click();
+                    } else {
+                        btnDescribe.click();
+                    }
+                    // analyze() will pauseRecognition and later resume via speak().onend
+                });
+
+                recognition.addEventListener('error', (event) => {
+                    const elapsed = (performance.now() - _cycleStartTime).toFixed(1);
+                    console.error('[Voz] ✖ Erro em', performance.now().toFixed(1), '| duração do ciclo:', elapsed, 'ms | tipo:', event.error);
+                    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                        permissionDenied = true;
+                        setMicStatus('unavailable');
+                        statusLine.textContent = 'Permissão de microfone negada — use os botões.';
+                        return;
+                    }
+                    if (event.error === 'network') {
+                        setMicStatus('no-connection');
+                        statusLine.textContent = 'Sem conexão para reconhecimento de voz.';
+                        // Still allow loop to retry via 'end' event
+                    } else if (event.error === 'no-speech') {
+                        // Silence timeout — normal, loop will restart via 'end' event
+                    } else if (event.error === 'aborted') {
+                        // We called .abort() intentionally (pause) — do nothing
+                    } else {
+                        statusLine.textContent = 'Não entendi — continue falando ou toque num botão.';
+                    }
+                    // 'end' event fires after 'error', which will restart the loop
+                });
+
+                recognition.addEventListener('end', () => {
+                    const elapsed = (performance.now() - _cycleStartTime).toFixed(1);
+                    console.log('[Voz] ■ Reconhecimento ENCERRADO em', performance.now().toFixed(1), '| duração do ciclo:', elapsed, 'ms',
+                        '| { paused:', recognitionPaused, ', denied:', permissionDenied, ', busy:', busy, ', speaking:', isSpeaking, '}');
+                    // Auto-restart unless paused, denied, or busy
+                    if (!recognitionPaused && !permissionDenied && !busy && !isSpeaking) {
+                        setTimeout(startListeningLoop, 300);
+                    }
+                });
+
+                // Auto-start recognition on page load
+                startListeningLoop();
+            } else {
+                setMicStatus('unavailable');
+            }
+            // ── Fim Comando de Voz ───────────────────────────────────
 
             btnUpload.addEventListener('click', () => fileInput.click());
             fileInput.addEventListener('change', () => {
